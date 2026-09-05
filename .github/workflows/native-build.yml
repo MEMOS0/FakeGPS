@@ -1,39 +1,59 @@
 name: Build FakeGPS installers
+
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['FakeGPS-source-v2.zip', '.github/workflows/native-build.yml']
+    paths:
+      - 'FakeGPS-source-v2.zip'
+      - '.github/workflows/native-build.yml'
+
 permissions:
   contents: read
+
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
         os: [windows-2022, macos-14]
+
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: unpacked/FakeGPS
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Extract source
-        working-directory: .
         run: python -m zipfile -e FakeGPS-source-v2.zip unpacked
-      - run: python -m pip install -e ".[dev]"
+
+      - name: Verify extracted source
+        shell: bash
+        run: |
+          test -f unpacked/FakeGPS/pyproject.toml
+          test -f unpacked/FakeGPS/scripts/project.py
+
+      - name: Install project dependencies
+        working-directory: unpacked/FakeGPS
+        run: python -m pip install -e ".[dev]"
+
       - name: Installer compiler
         if: runner.os == 'Windows'
         run: choco install innosetup --no-progress -y
-      - run: python scripts/project.py release
+
+      - name: Test and build release
+        working-directory: unpacked/FakeGPS
+        run: python scripts/project.py release
         env:
           QT_QPA_PLATFORM: offscreen
+
       - name: Windows frozen checks
         if: runner.os == 'Windows'
+        working-directory: unpacked/FakeGPS
         shell: pwsh
         run: |
           foreach ($arg in @('--check-backend', '--demo --smoke-test')) {
@@ -41,12 +61,15 @@ jobs:
             if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'Frozen check timed out' }
             if ($p.ExitCode -ne 0) { throw 'Frozen check failed' }
           }
+
       - name: macOS frozen checks
         if: runner.os == 'macOS'
+        working-directory: unpacked/FakeGPS
         run: |
           dist/FakeGPS.app/Contents/MacOS/FakeGPS --check-backend
           dist/FakeGPS.app/Contents/MacOS/FakeGPS --demo --smoke-test
           ditto -c -k --sequesterRsrc --keepParent dist/FakeGPS.app release/FakeGPS-macOS-app.zip
+
       - uses: actions/upload-artifact@v4
         with:
           name: FakeGPS-${{ runner.os }}
