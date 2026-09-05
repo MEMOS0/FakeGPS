@@ -20,6 +20,80 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Extract source
+        shell: pwsh
+        run: Expand-Archive -Path FakeGPS-source.zip -DestinationPath unpacked
+      - name: Install build dependencies
+        working-directory: unpacked/FakeGPS
+        run: python -m pip install -e ".[dev]"
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build and test installer
+        working-directory: unpacked/FakeGPS
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/project.py release
+      - name: Verify installer
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem unpacked/FakeGPS/release/FakeGPS-Setup-*.exe
+          if (-not $file) { throw "Installer was not produced" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FakeGPS-Windows-Installer
+          path: unpacked/FakeGPS/release/FakeGPS-Setup-*.exe
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Extract source
+        run: ditto -x -k FakeGPS-source.zip unpacked
+      - name: Install build dependencies
+        working-directory: unpacked/FakeGPS
+        run: python -m pip install -e ".[dev]"
+      - name: Build and test app
+        working-directory: unpacked/FakeGPS
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/project.py release
+      - name: Package app bundle
+        working-directory: unpacked/FakeGPS
+        run: ditto -c -k --sequesterRsrc --keepParent dist/FakeGPS.app release/FakeGPS-0.1.0-macOS-app.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FakeGPS-macOS-App
+          path: |
+            unpacked/FakeGPS/release/FakeGPS-0.1.0-macOS-app.zip
+            unpacked/FakeGPS/release/FakeGPS-0.1.0-macos.dmg
+          if-no-files-found: error
+name: Build FakeGPS installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - FakeGPS-source.zip
+      - .github/workflows/native-build.yml
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
           cache: pip
       - name: Extract source
         shell: pwsh
